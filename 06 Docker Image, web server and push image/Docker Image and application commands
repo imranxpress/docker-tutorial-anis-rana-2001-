@@ -1,3 +1,8 @@
+**How to create an Image from Container or from DockerFile** 
+
+
+
+**How to configure web server** 
 systemctl status docker.service
 docker container ls -a
 docker container rm -f container1 container2
@@ -34,28 +39,24 @@ elinks http://localhost
 CLT+P+Q
 =======================================================  
 
+**How to create Image from running Container** 
 [root@server1 ~]# docker commit container1 apache1-ubuntu
 sha256:927a12adccec54ba33459e5a96da69c4fb680576e4d016c4c4ce428896398fca
 [root@server1 ~]#
 
-We can delete the container1 and re-build the container from new image i.e. apache1-ubuntu.
-
-
-Remove the container and check if we get all the information from the image that we build from previous container.
+>We can delete the container1 and re-build the container from new image i.e. apache1-ubuntu.
+>Remove the container and check if we get all the information from the image that we build from previous container.
 
 [root@ip-172-31-33-87 ec2-user]# docker container rm -f container1
 container1
 
-[root@ip-172-31-33-87 ec2-user]# docker run -it  --name container1 apache1-ubuntu
+docker run -it  --name container1 apache1-ubuntu
 root@e7d0ab7090d3:/# service apache2 start
 root@e7d0ab7090d3:/# elinks http://localhost
                                                                                                                                                                                 Ubuntu rocks!
    I'm running this website on Docker Container1 on Ubuntu OS , Cheers!
 
 CLT P + CLT Q
-
-From the base machine, we can’t open the web page of container1. To resolve this issue, we have to port mirroring. 
-
 
 docker run -itd  --name container2 apache1-ubuntu
 docker exec -it container2 sed -i 's/Container1/Container2/' /var/www/container1/index.html
@@ -64,24 +65,21 @@ docker exec -it container2 service apache2 reload
 
 
 docker container inspect container1 | grep -i ipaddress
-
 docker container inspect container2 | grep -i ipaddress
-
 docker exec -it container1 /bin/bash
 
-ping 172.17.0.3   >>>> This should not work because PING command not available
+ping 172.17.0.3   > This should not work because PING command not available
 apt-get install iputils-ping -y
 ping 172.17.0.3   
 
 
 
-From the base machine 
+>From the base machine 
 curl http://172.17.0.3
 curl http://172.17.0.2
   
 
-
-
+**How to create Image from DockerFile** 
 
 mkdir /data
 cd /data
@@ -141,7 +139,7 @@ docker volume ls
 ifconfig
 cd /tmp/
 docker container run -itd --name mynewcontainer1 mywebserver1 /bin/bash
-docker container exec -it mynewcontainer1 /bin/bash       check the working Directory
+docker container exec -it mynewcontainer1 /bin/bash     # > check the working Directory
 
 cd /var/www/container1/
 ls -ltr
@@ -153,7 +151,8 @@ docker container inspect mynewcontainer1  | grep volume
 docker volume ls
 docker container ls -a
 
-anishrana2001
+
+How to push the Image to Dockerhub
 
 docker login 
 docker image ls
