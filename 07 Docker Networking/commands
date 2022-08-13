@@ -1,1 +1,323 @@
 
+####   Docker Container Port mirroring
+docker container run -it -d --name container1  -p 3901:80 mywebserver1 /bin/bash
+docker container run -it -d --name container2  -p 3902:80 mywebserver1 /bin/bash
+
+
+########### LAB for None Network Driver #############
+docker network ls
+docker container ls -a
+for i in $(docker container ls -aq) ; do docker container rm -f $i ;done
+docker container run -it -d  --net none  --name none-container1   mywebserver1
+docker container run -it -d  --network none  --name none-container2   mywebserver1
+docker network inspect none
+docker container exec -it none-container1 /bin/bash
+ifconfig       >>> You will notice no eth0 interface
+ip route      -> No route will show.
+####################   END  #########################################
+
+########### LAB for HOST Network Driver #############
+docker network ls
+docker network inspect host
+docker container run -it -d  --net host  --name host-container1   mywebserver1
+docker network inspect host
+docker container exec -it host-container1 /bin/bash
+ip a
+cd /var/www/container1
+sed -i 's/Docker Container1/Docker host network container1/' index.html
+service apache2 reload
+### Exit from the container 
+
+curl http://localhost
+docker container run -it -d  --net host  --name host-container12   mywebserver1
+docker container ls -a | grep “host-”       >>> you will notice the container will be on Exit status.
+docker container logs host-container12    -->  Port already used error message.
+####################   END  #########################################
+
+########### LAB for Bridge / custom bridge  Network Driver #############
+
+for i in $(docker container ls -aq ) ; do docker container rm -f $i ;done
+
+## Default Bridge driver
+docker container run -it -d --name cut1-container1  -p 3901:80 mywebserver1
+docker container run -it -d --name cut1-container2  -p 3902:80 mywebserver1
+docker container  inspect cut1-container2 | grep -i ipaddress
+docker container run -it -d --name  cut2-container1  -p 3903:80 mywebserver1
+docker container  inspect  cut2-container1 | grep -i ipaddress
+docker container exec container1 ping -c 2 172.17.0.4
+docker container exec -it cust1-container1  /bin/bash
+
+### How to create custom network bridge ####
+docker network  inspect testbridge1
+docker network  inspect bridge | grep Subnet
+docker run -itd --network= testbridge1 mywebserver1
+docker container run -it -d --network=testbridge1  --name testbridge1-container1  -p 3904:80 mywebserver1
+docker container run -it -d --network=testbridge1  --name testbridge1-container2  -p 3905:80 mywebserver1
+
+docker container run -it -d --network=testbridge2 --name testbridge2-container1  -p 3906:80 mywebserver1
+docker container run -it -d  --net testbridge2    --cap-add=NAT_ADMIN  --name testbridge2-container2  -p 3907:80 mywebserver1
+
+### This option "--cap-add=NAT_ADMIN" is use to get the super user privileges on container  ####
+
+docker container exec testbridge1-container1 ifconfig eth0 | grep Mask
+ inet addr:172.18.0.2  Bcast:172.18.255.255  Mask:255.255.0.0
+
+docker container exec testbridge2-container1 ifconfig eth0 | grep Mask
+  inet addr:172.19.0.2  Bcast:172.19.255.255  Mask:255.255.0.0
+
+###Ping test within custom bridge network ####
+docker container inspect testbridge1-container2 | grep -i IPaddress
+docker container exec testbridge1-container1 ping -c 2 172.18.0.3
+
+docker container exec testbridge1-container1 ping -c 2 testbridge1-container2
+
+
+### Ping test within custom bridge network ##########
+docker container inspect testbridge1-container2 | grep -i IPaddress
+            "SecondaryIPAddresses": null,
+            "IPAddress": "",
+                    "IPAddress": "172.18.0.3",
+
+[root@ ~]#  docker container exec testbridge1-container1 ping -c 2 172.18.0.3
+PING 172.18.0.3 (172.18.0.3) 56(84) bytes of data.
+64 bytes from 172.18.0.3: icmp_seq=1 ttl=64 time=0.142 ms
+64 bytes from 172.18.0.3: icmp_seq=2 ttl=64 time=0.063 ms
+
+[root@ ~]#   docker container exec testbridge1-container1 ping -c 2 testbridge1-container2
+PING testbridge1-container2 (172.18.0.3) 56(84) bytes of data.
+64 bytes from testbridge1-container2.testbridge1 (172.18.0.3): icmp_seq=1 ttl=64 time=0.072 ms
+64 bytes from testbridge1-container2.testbridge1 (172.18.0.3): icmp_seq=2 ttl=64 time=0.066 ms
+
+
+##### Inbuild DNS in container  ####
+[root@ ~]# docker container exec testbridge1-container1  cat /etc/resolv.conf
+nameserver 127.0.0.11
+options ndots:0
+[root@ ~]#
+
+
+#### Ping test between two custom bridge network####
+[root@ ~]#  docker container inspect testbridge2-container1 | grep -i IPaddress
+            "SecondaryIPAddresses": null,
+            "IPAddress": "",
+                    "IPAddress": "172.19.0.2",
+
+[root@ ~]#  docker container exec testbridge1-container1 ping -c 2 -w 3  172.19.0.2
+PING 172.19.0.2 (172.19.0.2) 56(84) bytes of data.
+
+--- 172.19.0.2 ping statistics ---
+3 packets transmitted, 0 received, 100% packet loss, time 2048ms
+
+[root@ ~]#  docker container exec testbridge1-container1 ping -c 2 -w 3  testbridge2-container1
+ping: unknown host testbridge2-container2
+[root@ ~]#
+
+
+### How to make a connectivity between two different networks?   ####
+docker network connect testbridge1 testbridge2-container1
+docker container exec testbridge1-container1 ping -c 2 -w 3  testbridge2-container1
+docker container inspect testbridge2-container1 | grep -i IPaddress
+
+
+#############  How to remove the connectivity between two different networks?  #####
+docker network disconnect testbridge1 testbridge2-container1
+
+[root@ ~]#    docker container exec testbridge1-container1 ping -c 2 -w 3  testbridge2-container1
+ping: unknown host testbridge2-container1
+[root@ ~]# 
+
+
+####################   END  #########################################
+
+
+########### LAB for Overlay Network Driver #############
+
+###############  On Master Node #############
+
+[root@docker1 ~]# ip a 
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: enp0s3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP group default qlen 1000
+    link/ether 08:00:27:1f:3e:a8 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.1.19/24 brd 192.168.1.255 scope global dynamic noprefixroute enp0s3
+       valid_lft 76467sec preferred_lft 76467sec
+    inet6 fe80::a00:27ff:fe1f:3ea8/64 scope link noprefixroute 
+       valid_lft forever preferred_lft forever
+3: docker0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state DOWN group default 
+    link/ether 02:42:de:d2:b4:cb brd ff:ff:ff:ff:ff:ff
+    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0
+       valid_lft forever preferred_lft forever
+
+[root@docker1 ~]# systemctl stop firewalld
+[root@docker1 ~]# systemctl disable firewalld
+
+[root@docker1 ~]# docker container ls -a
+CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES
+
+[root@docker1 ~]# for i in $(docker container ls -aq ) ; do docker container rm -f $i ;done
+
+[root@docker1 ~]# docker network ls
+NETWORK ID     NAME      DRIVER    SCOPE
+6bdf1cc916b8   bridge    bridge    local
+8d66995c344a   host      host      local
+c4864127ea6b   none      null      local
+
+[root@docker1 ~]# docker swarm init
+Swarm initialized: current node (y0hna30o6fv2zlulzg30r9lfg) is now a manager.
+
+To add a worker to this swarm, run the following command:
+
+docker swarm join --token SWMTKN-1-52hdoybuvxjl86x7col5v9hin7un0bazil5odk5ixxroznmhz6-8qvgeg3v0pi8lsl5nk5zdvabq 192.168.1.19:2377
+
+To add a manager to this swarm, run 'docker swarm join-token manager' and follow the instructions.
+
+
+
+### NO need to execute below commands as we have already disabled the firewall services ... This is only for your information ############
+[root@docker1 ~]# firewall-cmd --add-port=2377/tcp --permanent
+success
+[root@docker1 ~]# firewall-cmd --add-port=7946/tcp --permanent
+success
+[root@docker1 ~]# firewall-cmd --add-port=7946/udp --permanent
+success
+[root@docker1 ~]# firewall-cmd --add-port=4789/udp --permanent 
+success
+[root@docker1 ~]# firewall-cmd --reload
+success
+#########################################
+
+###### Execute the below commands on Salve server #############
+[root@docker1 ~]# systemctl stop firewalld
+[root@docker1 ~]# systemctl disable firewalld
+
+
+[root@docker2 ~]# docker swarm join --token SWMTKN-1-52hdoybuvxjl86x7col5v9hin7un0bazil5odk5ixxroznmhz6-8qvgeg3v0pi8lsl5nk5zdvabq 192.168.1.19:2377
+This node joined a swarm as a worker.
+
+[root@docker2 ~]# docker network ls
+NETWORK ID     NAME      DRIVER    SCOPE
+57cb5ec9cd69   bridge    bridge    local
+8d66995c344a   host      host      local
+lcqle0bghsoh   ingress   overlay   swarm
+c4864127ea6b   none      null      local
+[root@docker2 ~]# 
+
+
+
+###############  On Master Node #############
+
+[root@docker1 ~]# docker node ls
+ID                            HOSTNAME              STATUS    AVAILABILITY   MANAGER STATUS   ENGINE VERSION
+y0hna30o6fv2zlulzg30r9lfg *   docker1.example.com   Ready     Active         Leader           20.10.14
+azcqdjccc14ept9rxlf1f6i6n     docker2               Ready     Active                          20.10.14
+[root@docker1 ~]# 
+
+
+[root@docker1 ~]# docker network ls
+NETWORK ID     NAME              DRIVER    SCOPE
+6bdf1cc916b8   bridge            bridge    local
+d43beb83a586   docker_gwbridge   bridge    local
+8d66995c344a   host              host      local
+lcqle0bghsoh   ingress           overlay   swarm
+c4864127ea6b   none              null      local
+
+[root@docker1 ~]# docker network create --opt encrypted -d overlay --attachable my_overlay
+iaovhvbnf74gd43nu93a46qpi
+[root@docker1 ~]# 
+
+[root@docker1 ~]# docker network ls
+NETWORK ID     NAME              DRIVER    SCOPE
+6bdf1cc916b8   bridge            bridge    local
+d43beb83a586   docker_gwbridge   bridge    local
+8d66995c344a   host              host      local
+lcqle0bghsoh   ingress           overlay   swarm
+iaovhvbnf74g   my_overlay        overlay   swarm
+c4864127ea6b   none              null      local
+[root@docker1 ~]# 
+
+[root@docker1 ~]# docker run -itd --name overlay-container1 --network my_overlay mywebserver1
+
+###### Execute the below commands on Salve server #############
+
+[root@docker2 ~]# docker network ls
+NETWORK ID     NAME              DRIVER    SCOPE
+57cb5ec9cd69   bridge            bridge    local
+f79c77e1a148   docker_gwbridge   bridge    local
+8d66995c344a   host              host      local
+lcqle0bghsoh   ingress           overlay   swarm
+c4864127ea6b   none              null      local
+[root@docker2 ~]# 
+
+
+[root@docker2 ~]#  docker run -itd --name overlay-container2 --network my_overlay mywebserver1
+
+###############  On Master Node #############
+[root@docker1 ~]# docker container exec -it overlay-container1 ping overlay-container2
+PING overlay-container1 (10.0.1.10) 56(84) bytes of data.
+64 bytes from overlay-container1.my_overlay (10.0.1.10): icmp_seq=1 ttl=64 time=0.571 ms
+64 bytes from overlay-container1.my_overlay (10.0.1.10): icmp_seq=2 ttl=64 time=0.694 ms
+64 bytes from overlay-container1.my_overlay (10.0.1.10): icmp_seq=3 ttl=64 time=2.05 ms
+^C
+--- overlay-container1 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2008ms
+rtt min/avg/max/mdev = 0.571/1.107/2.056/0.672 ms
+[root@docker1 ~]# 
+
+####################   END  #########################################
+
+
+
+########### LAB for IPVLAN Network Driver #############
+
+Host 1
+for i in $(docker container ls -aq ) ; do docker container rm -f $i ;done
+
+ip a
+docker network  create  -d ipvlan --subnet=192.168.1.0/24 --gateway=192.168.1.1 --ip-range=192.168.1.40/30 -o ipvlan_mode=l2 -o parent=enp0s3 ipvlan1
+docker network inspect ipvlan1
+
+docker run --net=ipvlan1 -itd --name ipvlan1-H1-C1  alpine /bin/sh
+docker run --net=ipvlan1 -itd --name ipvlan1-H1-C2  alpine /bin/sh
+
+docker network inspect ipvlan1
+
+ifconfig enp0s3
+docker container exec -it ipvlan1-H1-C1 ping 192.168.1.49    => C2 machine
+docker container exec -it ipvlan1-H1-C1 ping 192.168.1.19
+docker container exec -it ipvlan1-H1-C1 ping 192.168.1.10    ==> My VM IP
+docker container exec -it ipvlan1-H1-C1 ping 192.168.1.1    
+docker container exec -it ipvlan1-H1-C1 ping host2 IP     ==> This will also work.
+
+
+
+Windows IP = 192.168.1.10 
+Gateway    = 192.168.1.1
+VM IP      = 192.168.1.19
+
+
+Host 1
+
+for i in $(docker container ls -aq ) ; do docker container rm -f $i ;done
+
+ip a
+docker network  create  -d ipvlan --subnet=192.168.1.0/24 --gateway=192.168.1.1 --ip-range=192.168.1.50/30 -o ipvlan_mode=l2 -o parent=enp0s3 ipvlan1
+docker network inspect ipvlan1
+
+docker run --net=ipvlan1 -itd --name ipvlan1-H2-C1  alpine /bin/sh
+docker run --net=ipvlan1 -itd --name ipvlan1-H2-C2  alpine /bin/sh
+
+docker network inspect ipvlan1
+
+ifconfig enp0s3
+docker container exec -it ipvlan1-H2-C1 ping 192.168.1.49    => C2 machine IP
+docker container exec -it ipvlan1-H2-C1 ping 192.168.1.19
+docker container exec -it ipvlan1-H2-C1 ping 192.168.1.10    ==> My VM IP
+docker container exec -it ipvlan1-H2-C1 ping 192.168.1.1    
+docker container exec -it ipvlan1-H2-C1 ping host2 IP     ==> This will also work.
+docker container exec -it ipvlan1-H1-C1 ping 192.168.1.40
+
+####################   END  #########################################
