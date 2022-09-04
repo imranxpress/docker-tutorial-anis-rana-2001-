@@ -1,0 +1,156 @@
+Lab for Docker Volume:
+
+docker container ls -a
+for i in $(docker container ls -aq) ; do docker container rm -f $i ;done
+
+docker run -d --name container1  nginx:latest
+ docker container exec -it container1 /bin/bash
+ cat > file.txt
+Hi
+This is my test file.
+
+cat file.txt
+exit
+docker container inspect container1     --> Check the mount option
+container exec -it container1 /bin/bash
+cat file.txt
+exit 
+
+docker container rm -f container1
+
+docker run -d --name container1  nginx:latest
+docker container exec -it container1 /bin/bash
+ cat file.txt
+ exit
+
+
+
+docker volume ls
+docker volume create my-voloume1
+docker volume ls
+docker volume inspect my-voloume1
+docker volume rm my-voloume1
+docker volume ls
+
+If the volume is not yet created then Docker will create for you.
+docker run -d --name Vol-mount-container1 --mount source=my-voloume1,target=/app nginx:latest
+docker container inspect Vol-mount-container1
+docker inspect Vol-mount-container1    >> Check the Month options   --> "Mode=z The 'z' flag tells Docker that the volume content will be shared between containers. 
+
+docker container exec -it Vol-mount-container1 /bin/bash
+cd /app/
+cat > Vol-mount-container1.txt
+Hello 
+This is the raw file of Vol-mount-container1
+ctl+c
+
+cat Vol-mount-container1.txt
+
+docker volume inspect my-voloume1
+cat /var/lib/docker/volumes/my-voloume1/_data/Vol-mount-container1.txt
+
+
+docker run -d \
+  --name Vol-v-container1 \
+  -v my-voloume1:/app \
+  nginx:latest
+
+docker container inspect Vol-v-container1
+docker container exec -it Vol-v-container1 /bin/bash
+cd /app/
+cat > Vol-v-container1
+Hello 
+this is the raw file of Vol-v-container1
+
+cat Vol-v-container1
+
+
+   docker container ls
+ docker container exec -it Vol-mount-container1 ls /app/   >>> You will see two files, here.
+docker container exec -it Vol-mount-container1 cat /app/Vol-v-container1
+
+for i in $(docker container ls -aq) ; do docker container rm -f $i ;done
+docker container ls -a
+
+docker run -d --name Vol-mount-container2 --mount source=my-voloume1,target=/app nginx:latest
+docker container exec -it Vol-mount-container2 ls /app/
+docker container exec -it Vol-mount-container2 cat /app/Vol-v-container1
+
+
+
+
+
+
+
+
+  ############## Dokcer Lab for Bind Mount ###########
+  mkdir /data-bind
+
+docker run -d --name Bmount-container1 --mount type=bind,source=/data-bind,target=/app nginx:latest
+docker inspect Bmount-container1 | grep -A 9 "Mounts"  | tail
+docker inspect Vol-mount-container2 | grep -A 9 "Mounts"  | tail
+docker container exec -it Bmount-container1 /bin/bash
+ cd /app/
+ ls -ltr
+ cat > file1.txt
+Hi
+This is my tes file from container Bmount-container1
+
+  cat file1.txt
+  exit
+ls -l /data-bind/
+cat  /data-bind/file1.txt
+
+cat >> /data-bind/file1.txt
+this update is done from hostmachine.
+^C
+
+cat /data-bind/file1.txt
+docker container exec -it Bmount-container1  cat /app/file1.txt
+docker container rm -f  Bmount-container1
+cat /data-bind/file1.txt
+
+
+[root@docker1 ~]# cat /data-bind/file1.txt
+Hi
+This is my tes file from container Bmount-container1
+this update is done from hostmachine.
+[root@docker1 ~]#
+
+
+
+docker run -d --name Bmount-container2 --mount type=bind,source=/tmp,target=/usr/ nginx:latest
+docker container exec -it Bmount-container2 /bin/bash
+docker container rm -f Bmount-container2
+
+
+docker run -d -it --name Bmount-v-container1 -v /data-bind:/app nginx:latest
+
+
+
+
+#####Docker lab for tmpfs ############
+for i in $(docker container ls -aq) ; do docker container rm -f $i ;done
+docker volume ls
+
+docker run -d -it --name tmpt-container1 --mount type=tmpfs,destination=/app nginx:latest
+docker container exec -it tmpt-container1 /bin/bash 
+ cd /app/
+ ls -ltr
+ echo "This is a test file in tmpt-container1 file." > tmpt-container1.txt
+ cat tmpt-container1.txt
+ exit
+ 
+ docker container inspect  tmpt-container1
+
+docker cp /etc/resolv.conf tmpt-container1:/tmp
+docker container exec -it tmpt-container1 cat /tmp/resolv.conf
+ 
+ 
+docker run -d -it --name tmpt-container2 --mount type=tmpfs,target=/app nginx:latest
+docker run -d -it --name tmpt-container3 --mount type=tmpfs,target=/app,tmpfs-size=500 nginx:latest
+docker run -d -it --name tmpt-container4 --mount type=tmpfs,target=/app,tmpfs-size=500,tmpfs-mode=1777 nginx:latest
+
+
+
+########## thanks   by Anish Rana ####
